@@ -136,8 +136,9 @@ app.get('/messages', async (req, res) => {
   const { data, error } = await supabase
     .from('request_messages')
     .select('id, created_at, name, message')
-    .order('created_at', { ascending: false })
-    .limit(10);
+    .order('created_at', { ascending: true });
+    // .limit(10);
+
 
   if (error) {
     console.error('[supabase] select error:', error);
@@ -167,7 +168,7 @@ app.get('/messages', async (req, res) => {
   </style>
 </head>
 <body>
-  <h1>Senaste 10</h1>
+  <h1>Senaste </h1>
   <a href="/">← Till formuläret</a>
   <ul>${items || '<li>Inga meddelanden än.</li>'}</ul>
 </body>
