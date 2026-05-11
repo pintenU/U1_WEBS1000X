@@ -21,10 +21,11 @@ export async function sendMessage(req, res) {
 
   const userAgent = clampString(req.get('user-agent'), 200);
   const ip        = clampString(req.ip, 60);
+  const user_id   = req.user?.id ?? null;
 
   const { error } = await supabase
     .from('request_messages')
-    .insert([{ name: nameRaw, message: messageRaw, user_agent: userAgent, ip }]);
+    .insert([{ name: nameRaw, message: messageRaw, user_agent: userAgent, ip, user_id }]);
 
   if (error) {
     console.error('[supabase] insert error:', error);
@@ -40,7 +41,7 @@ export async function sendMessage(req, res) {
 export async function listMessages(req, res) {
   const { data, error } = await supabase
     .from('request_messages')
-    .select('id, created_at, name, message')
+    .select('id, created_at, name, message, user_id')
     .order('created_at', { ascending: true });
 
   if (error) {
@@ -48,15 +49,19 @@ export async function listMessages(req, res) {
     return res.status(500).type('html').send('<p>Serverfel när vi skulle läsa från databasen.</p><p><a href="/">Tillbaka</a></p>');
   }
 
+  const loggedInUserId = req.user?.id ?? null;
+
   const itemsHtml = (data || []).map((row) => {
-    const when = escapeHtml(new Date(row.created_at).toLocaleString('sv-SE'));
-    const n    = escapeHtml(row.name);
-    const m    = escapeHtml(row.message).replaceAll('\n', '<br/>');
+    const when    = escapeHtml(new Date(row.created_at).toLocaleString('sv-SE'));
+    const n       = escapeHtml(row.name);
+    const m       = escapeHtml(row.message).replaceAll('\n', '<br/>');
+    const canEdit = loggedInUserId && row.user_id === loggedInUserId;
+
     return `<li>
       <div><strong>#${row.id}</strong> · ${when}</div>
       <div><strong>${n}</strong></div>
       <div>${m}</div>
-      <div><a href="/edit/${row.id}">✏️ Redigera</a></div>
+      ${canEdit ? `<div><a href="/edit/${row.id}">✏️ Redigera</a></div>` : ''}
     </li>`;
   }).join('');
 
@@ -71,12 +76,16 @@ export async function showEditForm(req, res) {
 
   const { data, error } = await supabase
     .from('request_messages')
-    .select('id, name, message')
+    .select('id, name, message, user_id')
     .eq('id', id)
     .single();
 
   if (error || !data) {
     return res.status(404).type('html').send('<p>Meddelandet hittades inte.</p><p><a href="/messages">Tillbaka</a></p>');
+  }
+
+  if (data.user_id !== req.user.id) {
+    return res.status(403).type('html').send('<p>Du får inte redigera någon annans meddelande.</p><p><a href="/messages">Tillbaka</a></p>');
   }
 
   res.type('html').send(renderEditPage({
@@ -90,6 +99,20 @@ export async function updateMessage(req, res) {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id < 1) {
     return res.status(400).type('html').send('<p>Ogiltigt ID.</p><p><a href="/messages">Tillbaka</a></p>');
+  }
+
+  const { data, error: fetchError } = await supabase
+    .from('request_messages')
+    .select('user_id')
+    .eq('id', id)
+    .single();
+
+  if (fetchError || !data) {
+    return res.status(404).type('html').send('<p>Meddelandet hittades inte.</p><p><a href="/messages">Tillbaka</a></p>');
+  }
+
+  if (data.user_id !== req.user.id) {
+    return res.status(403).type('html').send('<p>Du får inte redigera någon annans meddelande.</p><p><a href="/messages">Tillbaka</a></p>');
   }
 
   const nameRaw    = clampString(req.body?.name,    50);
